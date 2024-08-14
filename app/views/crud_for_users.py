@@ -3,18 +3,16 @@ from fastapi import APIRouter, Depends
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from data_sources.models import get_async_session
-from pydantic_models.pydantic_models import UserModel
-from data_sources.storages.user_repository import user_repository
+from data_sources.models.user_model import get_async_session
+from pydantic_models.user_models.user_model import UserModel
+from data_sources.storages.position_repository import RepositoryStore
 from config import settings
+
 
 user_router = APIRouter()
 
 @user_router.post('/api/v1/users')
-async def create_user(
-    request: UserModel,
-    session: AsyncSession = Depends(get_async_session),
-):
+async def create_user(request: UserModel):
     """Запрос на создание нового пользователя.
 
     Parameters
@@ -22,20 +20,13 @@ async def create_user(
     request: UserModel
         Данные запроса.
         
-    session: AsyncSession
-        Сессия соединения с базой данных.
     """
-    if settings.no_sql:
-        return await user_repository.create_user(
-            request.surname,
-            request.name,
-            request.patronymic,
-        )
-    return await user_repository.create_user(
+    return await RepositoryStore.user_repository.create_user(
         request.surname,
         request.name,
         request.patronymic,
-        session,
+        request.email,
+        request.position,
     )
 
 
@@ -43,7 +34,6 @@ async def create_user(
 async def update_user(
     request: UserModel,
     target_user_id: str,
-    session: AsyncSession = Depends(get_async_session),
 ):
     """Запрос на обновление данных пользователя.
 
@@ -55,29 +45,21 @@ async def update_user(
     target_user_id: str
         id пользователя.
 
-    session: AsyncSession
-        Сессия соединения с базой данных.
     """
-    if settings.no_sql:
-        return await user_repository.update_user(
-            request.surname,
-            request.name,
-            request.patronymic,
-            target_user_id,
-        )
-    return await user_repository.update_user(
+    return await RepositoryStore.user_repository.update_user(
         request.surname,
         request.name,
         request.patronymic,
+        request.email,
+        request.position,
         target_user_id,
-        session)
+    )
 
 
 @user_router.get('/api/v1/users/{user_id}')
 async def get_user(
     request: Request,
     user_id: str,
-    session: AsyncSession = Depends(get_async_session),
 ):
     """Запрос на получение данных пользователя.
 
@@ -89,19 +71,15 @@ async def get_user(
     user_id: str
         id пользователя
 
-    session: AsyncSession
-        Сессия соединения с базой данных.
     """
-    if settings.no_sql:
-        return await user_repository.get_user(user_id)
-    return await user_repository.get_user(user_id, session)
+    
+    return await RepositoryStore.user_repository.get_user(user_id)
 
 
 @user_router.delete('/api/v1/users/{user_id}')
 async def delete_user(
     request: Request,
     user_id: str,
-    session: AsyncSession = Depends(get_async_session),
 ):
     """Запрос на удаление пользователя.
 
@@ -113,9 +91,6 @@ async def delete_user(
     user_id: str
         id пользователя
 
-    session: AsyncSession
-        Сессия соединения с базой данных.
     """
-    if settings.no_sql:
-        return await user_repository.delete_user(user_id)
-    return await user_repository.delete_user(user_id, session)
+
+    return await RepositoryStore.user_repository.delete_user(user_id)

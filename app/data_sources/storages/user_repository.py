@@ -9,12 +9,12 @@ from starlette import status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pydantic_models.pydantic_models import (
-    UserUpdateResp,
-    UserResp,
-)
-from data_sources.models import User_model
+from pydantic_models.user_models.user_model import UserModel
+from pydantic_models.user_models.update_user_resp import UserUpdateResp
+from pydantic_models.user_models.get_user_resp import UserResp
+from data_sources.models.user_model import User_model
 from config import settings, redis_instance
+
 
 
 class UserRepository():
@@ -38,31 +38,16 @@ class UserRepository():
         Удаляет пользователя.
     """
 
-    def __init__(
-        self,
-        create: bool,
-        update: bool,
-        read: bool,
-        delete: bool,
-    ):
+    def __init__(self, session):
         """Инициализатор класса.
 
         Parameters
         ----------
-        create: bool
-            Разрешение на добавление данных.
-        update: bool
-            Разрешение на обновление данных.
-        read: bool
-            Разрешение на чтение данных.
-        delete: bool
-            Разрешение на удаление данных.
+        session: session
+            Сессия соединения с базой данных.
         """
 
-        self.create = create
-        self.update = update
-        self.read = read
-        self.delete = delete
+        self.session = session
 
     async def create_user(self):
         pass
@@ -101,39 +86,53 @@ class UserRepositorySQL(UserRepository):
 
     """
 
-    @classmethod
-    async def get_user_by_id(
-        cls, user_id: str,
-        session: AsyncSession,
-    ):
+    async def get_user_by_id(self, user_id: str):
         """Возвращает пользователя по id.
 
         Parameters
         ----------
         user_id: str
             id пользователя.
-            
-        session: AsyncSession
-            Сессия соединения с базой данных.
+        """
+        user_id = str(user_id)
+        try:
+            async with self.session.acquire() as con:
+                query = 'SELECT * FROM users WHERE id = ($1)'
+                exists_user = await con.fetchrow(query, user_id)
+                if exists_user is None:
+                    return False
+                return exists_user
+        except Exception as some_ex:
+            print(some_ex)
+            return 'error'
+        
+    async def get_user_by_email(self, email: str):
+        """Возвращает пользователя по email.
+
+        Parameters
+        ----------
+        email: str
+            email пользователя.
         """
 
         try:
-            query = select(User_model).where(User_model.c.id == uuid.UUID(user_id))
-            exists_user = await session.execute(query)
-            exists_user = exists_user.all()
-            if len(exists_user) > 0:
-                return exists_user[0]
-            return False
+            async with self.session.acquire() as con:
+                query = 'SELECT * FROM users WHERE email = ($1)'
+                exists_user = await con.fetchrow(query, email)
+                if exists_user is None:
+                    return False
+                return exists_user
         except Exception as some_ex:
             print(some_ex)
-            return False
+            return 'error'
 
     async def create_user(
         self,
         surname: str,
         name: str,
         patronymic: str,
-        session: AsyncSession,
+        email: str,
+        position: str,
     ):
         """Создает нового пользователя.
 
@@ -147,48 +146,44 @@ class UserRepositorySQL(UserRepository):
         
         patronymic: str
             Отчество пользователя.
-            
-        session: AsyncSession
-            Сессия соединения с базой данных.
+        
         """
-
-        if not self.create:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Добавление данных запрещено",
-            )
+        
         try:
-            user_id = uuid.uuid4()
-            query = User_model.insert().values(
-                id=user_id,
-                surname=surname,
-                name=name,
-                patronymic=patronymic,
-            )
-            await session.execute(query)
-            await session.commit()
-            user = await UserRepositorySQL.get_user_by_id(str(user_id), session)
-            return UserResp(
-                id = str(user[0]),
-                surname = user[1],
-                name = user[2],
-                patronymic = user[3],
-            )
+            user_id = str(uuid.uuid4())
+            async with self.session.acquire() as con:
+                await con.execute(
+                    'INSERT INTO "users"(id, surname, name, patronymic, email, position)\
+                    VALUES($1, $2, $3, $4, $5, $6)',
+                    user_id,
+                    surname,
+                    name,
+                    patronymic,
+                    email,
+                    int(position),
+                )
+                user = await self.get_user_by_id(user_id)
+
+                return UserResp(
+                    id = user['id'],
+                    surname = user['surname'],
+                    name = user['name'],
+                    patronymic = user['patronymic'],
+                    email = user['email'],
+                    position = user['position'],
+                )
         except Exception as some_ex:
-            await session.rollback()
             print(some_ex)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail='Ошибка на стороне сервера',
-            )
+            return 'error'
         
     async def update_user(
         self,
         surname: str,
         name: str,
         patronymic: str,
+        email: str,
+        position: str,
         user_id: str,
-        session: AsyncSession,
     ):
         """Обновляет данные пользователя.
 
@@ -206,49 +201,35 @@ class UserRepositorySQL(UserRepository):
         user_id: str
             id пользователя.
             
-        session: AsyncSession
-            Сессия соединения с базой данных.
         """
 
-        if not self.update:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Обновление данных запрещено",
-            )
-        exists_user = await UserRepositorySQL.get_user_by_id(user_id, session)
+        try:
+            async with self.session.acquire() as con:
+                await con.execute(
+                    'UPDATE users SET surname = ($1), name = ($2), patronymic = ($3),\
+                    email = ($4), position = ($5) WHERE id = ($6)',
+                    surname,
+                    name,
+                    patronymic,
+                    email,
+                    int(position),
+                    user_id,
+                )
+            user = await self.get_user_by_id(user_id)
 
-        if exists_user:
-            try:
-                query = User_model.update().where(
-                    User_model.c.id == uuid.UUID(user_id),
-                ).values(
-                    surname=surname,
-                    name=name,
-                    patronymic=patronymic,
-                )
-                await session.execute(query)
-                await session.commit()
-                user = await UserRepositorySQL.get_user_by_id(user_id, session)
-                return UserUpdateResp(
-                    id=str(user[0]),
-                    new_surname=user[1],
-                    new_name=user[2],
-                    new_patronymic=user[3],
-                )
-            except Exception as some_ex:
-                await session.rollback()
-                print(some_ex)
-                raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail='Ошибка на стороне сервера',
-                )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Пользователь не найден",
+            return UserUpdateResp(
+                id=user['id'],
+                new_surname=user['surname'],
+                new_name=user['name'],
+                new_patronymic=user['patronymic'],
+                new_email = user['email'],
+                new_position = user['position'],
             )
+        except Exception as some_ex:
+            print(some_ex)
+            return 'error'
         
-    async def get_user(self, user_id: str, session: AsyncSession):
+    async def get_user(self, user_id: str):
         """Возвращает пользователя по id.
 
         Parameters
@@ -256,36 +237,23 @@ class UserRepositorySQL(UserRepository):
         user_id: str
             id пользователя.
             
-        session: AsyncSession
-            Сессия соединения с базой данных.
         """
-
-        if not self.read:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Чтение данных запрещено",
-            )
-        user = await UserRepositorySQL.get_user_by_id(user_id, session)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f'Пользователь не найден',
-            )
+        user = await self.get_user_by_id(user_id)
+        
         try:
             return UserResp(
-                id=str(user[0]),
-                surname=user[1],
-                name=user[2],
-                patronymic=user[3],
+                id=user['id'],
+                surname=user['surname'],
+                name=user['name'],
+                patronymic=user['patronymic'],
+                email=user['email'],
+                position=user['position'],
             )
         except Exception as some_ex:
             print(some_ex)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail='Ошибка на стороне сервера',
-            )
+            return 'error'
         
-    async def delete_user(self, user_id: str, session: AsyncSession):
+    async def delete_user(self, user_id: str):
         """Удаляет пользователя по id.
 
         Parameters
@@ -293,36 +261,15 @@ class UserRepositorySQL(UserRepository):
         user_id: str
             id пользователя.
 
-        session: AsyncSession
-            Сессия соединения с базой данных.
         """
 
-        if not self.delete:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Удаление данных запрещено",
-            )
-        exists_user = await UserRepositorySQL.get_user_by_id(user_id, session)
-        if not exists_user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f'Пользователь не найден',
-            )
         try:
-            query = User_model.delete().where(User_model.c.id == uuid.UUID(user_id))
-            await session.execute(query)
-            await session.commit()
-            return {
-                "status": True,
-                "message": "Пользователь успешно удален"
-            }
+            async with self.session.acquire() as con:
+                await con.execute('DELETE FROM users WHERE id = ($1)', user_id)
+                return {'message': 'пользователь успешно удален'}
         except Exception as some_ex:
-            await session.rollback()
             print(some_ex)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail='Ошибка на стороне сервера',
-            )
+            return 'error'
         
 
 class UserRepositoryNoSQL(UserRepository):
@@ -332,8 +279,6 @@ class UserRepositoryNoSQL(UserRepository):
 
     Attributes
     ----------
-    REDIS_INSTANCE : Redis
-        экземпляр редис
     
     Methods
     -------
@@ -354,10 +299,7 @@ class UserRepositoryNoSQL(UserRepository):
 
     """
 
-    REDIS_INSTANCE = redis_instance
-
-    @classmethod
-    async def get_user_by_id(cls, user_id: str):
+    async def get_user_by_id(self, user_id: str):
         """Возвращает пользователя по id.
 
         Parameters
@@ -368,10 +310,15 @@ class UserRepositoryNoSQL(UserRepository):
         """
 
         try:
-            user = await cls.REDIS_INSTANCE.hgetall(user_id)
-            if user:
-                return user
-            return False
+            user = self.session.hget(user_id)
+            return {
+                'id': user_id,
+                'surname': user[1],
+                'name': user[3],
+                'patronymic': user[5],
+                'email': user[7],
+                'position': user[9],
+            }
         except Exception as some_ex:
             print(some_ex)
             return False
@@ -386,36 +333,19 @@ class UserRepositoryNoSQL(UserRepository):
             
         """
 
-        if not self.read:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Чтение данных запрещено",
-            )
-        user = await UserRepositoryNoSQL.get_user_by_id(user_id)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f'Пользователь не найден',
-            )
         try:
-            return UserResp(
-                id = user['id'],
-                surname = user['surname'],
-                name = user['name'],
-                patronymic = user['patronymic'],
-            )
+            return await self.get_user_by_id(user_id)
         except Exception as some_ex:
             print(some_ex)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail='Ошибка на стороне сервера',
-            )
+            return 'error'
 
     async def create_user(
         self,
         surname: str,
         name: str,
         patronymic: str,
+        email: str,
+        position: str,
     ):
         """Создает нового пользователя.
 
@@ -431,45 +361,41 @@ class UserRepositoryNoSQL(UserRepository):
             Отчество пользователя.
         """
 
-        if not self.create:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Добавление данных запрещено",
-            )
         try:
             user_id = str(uuid.uuid4())
-            pipeline = await UserRepositoryNoSQL.REDIS_INSTANCE.pipeline(
-                transaction=True,
-            )
-            await pipeline.hmset(
+            self.session.hset(
                 user_id,
-                {   'id': user_id,
-                    'surname': surname,
-                    'name': name,
-                    'patronymic': patronymic,
-                }
+                'surname',
+                surname,
+                'name',
+                name,
+                'patronymic',
+                patronymic,
+                'email',
+                email,
+                'position',
+                str(position),
             )
-            await pipeline.execute()
-            user = await UserRepositoryNoSQL.REDIS_INSTANCE.hgetall(user_id)
+            user = await self.get_user_by_id(user_id)
             return UserResp(
                 id = user['id'],
                 surname = user['surname'],
                 name = user['name'],
                 patronymic = user['patronymic'],
+                email = user['email'],
+                position = user['position'],
             )
         except Exception as some_ex:
-            await pipeline.discard()
             print(some_ex)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail='Ошибка на стороне сервера',
-            )
+            return 'error'
 
     async def update_user(
         self,
         surname: str,
         name: str,
         patronymic: str,
+        email: str,
+        position: str,
         user_id: str,
     ):
         """Обновляет данные пользователя.
@@ -489,44 +415,33 @@ class UserRepositoryNoSQL(UserRepository):
             id пользователя.
         """
 
-        if not self.update:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Обновление данных запрещено",
-            )
-        user = await UserRepositoryNoSQL.get_user_by_id(user_id)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f'Пользователь не найден',
-            )
         try:
-            pipeline = await UserRepositoryNoSQL.REDIS_INSTANCE.pipeline(
-                transaction=True,
-            )
-            await pipeline.hmset(
+            self.session.hset(
                 user_id,
-                {   'id': user_id,
-                    'surname': surname,
-                    'name': name,
-                    'patronymic': patronymic,
-                }
+                'surname',
+                surname,
+                'name',
+                name,
+                'patronymic',
+                patronymic,
+                'email',
+                email,
+                'position',
+                str(position),
             )
-            await pipeline.execute()
-            user = await UserRepositoryNoSQL.REDIS_INSTANCE.hgetall(user_id)
+            user = await self.get_user_by_id(user_id)
             return UserUpdateResp(
                 id = user['id'],
                 new_surname = user['surname'],
                 new_name = user['name'],
                 new_patronymic = user['patronymic'],
+                new_email = user['email'],
+                new_position = user['position'],
             )
         except Exception as some_ex:
-            await pipeline.discard()
             print(some_ex)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail='Ошибка на стороне сервера',
-            )
+            return 'error'
+            
 
     async def delete_user(self, user_id: str):
         """Удаляет пользователя по id.
@@ -537,50 +452,10 @@ class UserRepositoryNoSQL(UserRepository):
             id пользователя.
         """
         
-        if not self.delete:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Удаление данных запрещено",
-            )
-        user = await UserRepositoryNoSQL.get_user_by_id(user_id)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f'Пользователь не найден',
-            )
         try:
-            pipeline = await UserRepositoryNoSQL.REDIS_INSTANCE.pipeline(
-                transaction=True,
-            )
-            await pipeline.delete(user_id)
-            await pipeline.execute()
-            return {
-                "status": True,
-                "message": "Пользователь успешно удален"
-            }
+            self.session.hdel(user_id)
+            return {'message': 'Пользователь успешно удален'}
         except Exception as some_ex:
-            await pipeline.discard()
             print(some_ex)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail='Ошибка на стороне сервера',
-            )
+            return 'error'
  
-#Если значение переменной окружение NO_SQL = True,
-#создается экземпляр репозитория с использованием нереляционной СУБД.
-#Если значение переменной окружение NO_SQL = False,
-#создается экземпляр репозитория с использованием реляционной СУБД.
-if settings.no_sql:
-    user_repository = UserRepositoryNoSQL(
-        settings.create,
-        settings.update,
-        settings.read,
-        settings.delete,
-    )
-else:
-    user_repository = UserRepositorySQL(
-        settings.create,
-        settings.update,
-        settings.read,
-        settings.delete,
-    )

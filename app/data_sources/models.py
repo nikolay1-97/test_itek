@@ -6,6 +6,8 @@ from sqlalchemy import (
     Table,
     Column,
     String,
+    Integer,
+    ForeignKey,
 )
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -36,4 +38,13 @@ User_model = Table(
     Column('surname', String, nullable=False),
     Column('name', String, nullable=False),
     Column('patronymic', String, nullable=False),
+    Column('email', String, nullable=False, unique=True),
+    Column('position', Integer, ForeignKey("position.id"), nullable=False)
+)
+
+Position_model = Table(
+    'position',
+    metadata,
+    Column('id', Integer, primary_key=True, index=True),
+    Column('title', String, nullable=False, unique=True),
 )

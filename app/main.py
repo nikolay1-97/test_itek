@@ -1,25 +1,31 @@
 """Файл запуска приложения."""
 from fastapi import FastAPI
-from redis import asyncio as aioredis
 import uvicorn
 
 from config import settings
 
 from views.crud_for_users import user_router
+from views.crud_for_position import position_router
+from fast_app import Application
 
 
-def get_application() -> FastAPI:
-    """Возвращает экземпляр приложения."""
-    application = FastAPI()
-    return application
+Application.create_application()
+Application.include_router(user_router)
+Application.include_router(position_router)
 
-application = get_application()
+#def get_application() -> FastAPI:
+    #"""Возвращает экземпляр приложения."""
+    #application = FastAPI()
+    #return application
 
-application.include_router(user_router)
+#application = get_application()
+
+#application.include_router(user_router)
+#application.include_router(position_router)
 
 if __name__ == '__main__':
     uvicorn.run(
-        app=application,
+        app=Application.get_application(),
         host=settings.app_host,
         port=int(settings.app_port),
     )
