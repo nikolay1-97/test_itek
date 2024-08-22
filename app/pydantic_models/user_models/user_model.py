@@ -3,7 +3,7 @@ from pydantic import BaseModel
 
 
 class UserModel(BaseModel):
-    """Модель данных для создания пользователя."""
+    """Модель данных для создания и обновления данных пользователя."""
     surname: str
     name: str
     patronymic: str

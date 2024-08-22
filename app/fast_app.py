@@ -1,42 +1,49 @@
-from fastapi import FastAPI
-from contextlib import asynccontextmanager
-import asyncpg
-from config import DB_URL
-from data_sources.storages.position_repository import PositionRepositorySQL, RepositoryStore, PositionRepositoryNoSQL, ManageRedis
-from data_sources.storages.user_repository import UserRepositorySQL, UserRepositoryNoSQL
-
-
+from fastapi import FastAPI, APIRouter
+from lifespan import lifespan
 
 
 class Application():
+    """Класс содержит экземпляр fastapi приложения.
+
+    Attributes
+    ----------
+    APPLICATION: FastAPI
+        Экземпляр fastapi приложения.
+
+    Methods
+    -------
+    create_application()
+        Создает экземпляр fastapi приложения.
+
+    include_router()
+        Включает роутеры в fastapi приложение.
+
+    get_application()
+        Возвращает экземпляр fastapi приложения.
+
+    """
 
     APPLICATION = None
-    POOL = None
 
     @classmethod
-    def create_application(cls) -> FastAPI:
-        """Возвращает экземпляр приложения."""
+    def create_application(cls) -> None:
+        """Создает экземпляр fastapi приложения."""
         cls.APPLICATION = FastAPI(lifespan=lifespan)
 
     @classmethod
-    def include_router(cls, router):
+    def include_router(cls, router: APIRouter) -> None:
+        """Включает роутеры в fastapi приложение.
+
+        Parameters
+        ----------
+        router: APIRouter
+            Экземпляр класса APIRouter.
+            
+        """
         cls.APPLICATION.include_router(router)
 
     @classmethod
-    def get_application(cls):
+    def get_application(cls) -> FastAPI:
+        """Возвращает экземпляр fastapi приложения."""
         return cls.APPLICATION
     
-    @classmethod
-    async def get_pool(cls, app: FastAPI):
-        return await app.state.async_session
-    
-    
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    #pool = await asyncpg.create_pool(host='localhost', user='kolya', password='1234', database='study_base20')
-    #pool2 = await asyncpg.create_pool(host='localhost', user='kolya', password='1234', database='study_base20')
-    RepositoryStore.user_repository = UserRepositoryNoSQL(ManageRedis())
-    #RepositoryStore.user_repository = UserRepositorySQL(pool2)
-    #app.state.async_session = await asyncpg.create_pool(host='localhost', user='kolya', password='1234', database='study_base20')
-    yield
-    await pool.close()

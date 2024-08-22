@@ -9,7 +9,6 @@ packages = [{include = "test_itek"}]
 [tool.poetry.dependencies]
 python = "^3.8"
 fastapi = "0.111.1"
-alembic = "^1.13.2"
 redis = "^5.0.7"
 pydantic-settings = "2.3.4"
 asyncpg = "^0.29.0"

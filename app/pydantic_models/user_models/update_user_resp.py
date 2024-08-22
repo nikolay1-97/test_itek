@@ -3,7 +3,7 @@ from pydantic import BaseModel
 
 
 class UserUpdateResp(BaseModel):
-    """Модель данных ответа для обновления пользователя."""
+    """Модель данных ответа для обновления данных пользователя."""
     id: str
     new_surname: str
     new_name: str
